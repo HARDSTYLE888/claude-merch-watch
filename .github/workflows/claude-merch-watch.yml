@@ -1,0 +1,50 @@
+name: claude-merch-watch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: last.json
+          key: swag-${{ github.run_id }}
+          restore-keys: swag-
+
+      - id: diff
+        run: |
+          curl -fsS https://claude.dev/terminal/swag-status.json -o now.json
+          cat now.json
+          if [ -f last.json ] && ! cmp -s now.json last.json; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.diff.outputs.changed == 'true'
+        env:
+          TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          curl -fsS -H "Title: CLAUDE MERCH" -H "Priority: urgent" \
+            -H "Click: https://claude.dev/terminal/" \
+            -d "Swag status changed: $(cat now.json). Go claim it." \
+            "https://ntfy.sh/$TOPIC"
+
+      - run: cp now.json last.json
+
+      - uses: actions/cache/save@v4
+        with:
+          path: last.json
+          key: swag-${{ github.run_id }}
+
+      # ponytail: re-enable on every run so GitHub's 60-day inactivity shutoff never sticks; if it ever does, a monthly empty commit is the fallback
+      - name: keepalive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow enable claude-merch-watch.yml -R "$GITHUB_REPOSITORY"
